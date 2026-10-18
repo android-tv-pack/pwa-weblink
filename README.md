@@ -42,3 +42,9 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 No push notifications, camera, microphone, file downloads or file pickers. Only one web app is open at a time. Sites that test for "standalone" display mode behave as in a browser tab. Sites that insist on an interactive human check time out while reading and can be added anyway, then opened and solved with the pointer.
 
 Tested on a Xiaomi TV Box S (Android 14). Not tested: dragging, typing inside a page, fullscreen video, zoom, and holding Back on a physical remote.
+
+## Support
+
+If this project is useful to you, you can support its development:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/G0U5290K4T)
