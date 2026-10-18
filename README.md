@@ -18,6 +18,7 @@ To update, install the new APK over the old one: your web apps are kept, because
 - **Add by link:** choose the **+** tile, type or paste an address, and check the preview (name, icon, whether a manifest was found).
 - **Add from your phone or computer:** the app shows an address like `http://<tv-ip>:8765` at the bottom; open it, paste the link, and the app appears on the TV. This avoids typing with a remote.
 - **Open:** OK on a tile. **Options:** hold OK on a tile (open, rename, pointer on/off, desktop/mobile layout, refresh name and icon, remove).
+- **Video in fullscreen:** OK plays or pauses, Left and Right seek 10 seconds, and a small badge shows what happened. Hold OK to switch to the pointer (for the site's own buttons), hold OK again to switch back. The play, pause, fast-forward and rewind keys of the remote work too. Players embedded from another site can only be played or paused, not seeked.
 - **In a web app:** the arrow keys move a mouse pointer and OK clicks (hold OK to drag). Pushing against a screen edge scrolls. Hold **Back** or press **INFO** for the menu (reload, start page, open another address, pointer, layout, zoom, close). Back goes back in history, then leaves the app. Turn the pointer off for sites made for TV, such as YouTube TV.
 
 ## How a link is read

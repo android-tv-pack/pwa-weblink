@@ -81,6 +81,13 @@ class WebActivity : Activity() {
     private var pressing = false
     private var failedUrl: String? = null
     private var menu: AlertDialog? = null
+    /** fullscreen video: false = OK plays/pauses and Left/Right seek, true = the arrow keys steer the pointer */
+    private var fsPointer = false
+    private var okLong = false
+    private var moved = false
+    private val okLongRun = Runnable { onOkHeld() }
+    /** while a video is fullscreen the page is shown in a separate view; touches must go there, not to the hidden WebView */
+    private fun target(): View = custom ?: web
     private var defaultUa = ""
 
     override fun onCreate(b: Bundle?) {
@@ -101,6 +108,7 @@ class WebActivity : Activity() {
         val a = resolveApp(i) ?: return
         if (a.id != app.id) {
             app = a; applySettings(); decorate(); showSplash(); load(app.url)
+            cx = root.width / 2f; cy = root.height / 2f; cursor.px = cx; cursor.py = cy
         }
     }
 
@@ -156,6 +164,8 @@ class WebActivity : Activity() {
             override fun onShowCustomView(v: View, cb: CustomViewCallback) {
                 if (custom != null) { cb.onCustomViewHidden(); return }
                 custom = v; customCb = cb
+                fsPointer = false
+                if (app.cursor) flash("OK  play / pause     \u25C0 \u25B6  seek 10 s     hold OK  pointer", 3600)
                 v.setBackgroundColor(Color.BLACK)
                 root.addView(v, root.indexOfChild(cursor).coerceAtLeast(0), FrameLayout.LayoutParams(-1, -1))
                 web.visibility = View.INVISIBLE
@@ -292,19 +302,45 @@ class WebActivity : Activity() {
         val k = ev.keyCode
         if (menu?.isShowing == true) return super.dispatchKeyEvent(ev)
         if (isMenuKey(k)) { if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) showMenu(); return true }
+        when (k) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> { if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) videoControl("toggle"); return true }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) videoControl("play"); return true }
+            KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP -> { if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) videoControl("pause"); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> { if (ev.action == KeyEvent.ACTION_DOWN) videoControl("+15"); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> { if (ev.action == KeyEvent.ACTION_DOWN) videoControl("-15"); return true }
+        }
         if (k == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(ev)       // handled in onKeyDown / onKeyUp below
-        if (app.cursor && custom == null) {
-            when (k) {
-                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (ev.action == KeyEvent.ACTION_DOWN) moveCursor(k, ev.repeatCount)
-                    return true
+        val isOk = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_NUMPAD_ENTER
+        val isArrow = k == KeyEvent.KEYCODE_DPAD_UP || k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_DPAD_LEFT || k == KeyEvent.KEYCODE_DPAD_RIGHT
+        if (app.cursor && custom != null && !fsPointer) {
+            // fullscreen video, remote mode: what every TV player does
+            if (isOk) {
+                if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) { okLong = false; h.removeCallbacks(okLongRun); h.postDelayed(okLongRun, 650) }
+                else if (ev.action == KeyEvent.ACTION_DOWN && !okLong) { h.removeCallbacks(okLongRun); onOkHeld() }     // key auto-repeat = held
+                else if (ev.action == KeyEvent.ACTION_UP) { h.removeCallbacks(okLongRun); if (!okLong) videoControl("toggle") }
+                return true
+            }
+            if (isArrow) {
+                if (ev.action == KeyEvent.ACTION_DOWN) when (k) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (ev.repeatCount == 0 || ev.repeatCount % 6 == 0) videoControl("-10")
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (ev.repeatCount == 0 || ev.repeatCount % 6 == 0) videoControl("+10")
+                    else -> if (ev.repeatCount == 0) flash("OK  play / pause     \u25C0 \u25B6  seek 10 s     hold OK  pointer", 3000)
                 }
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    // a press is a mouse click; holding it keeps the button down (drag, long press)
-                    if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) press(true)
-                    else if (ev.action == KeyEvent.ACTION_UP) press(false)
-                    return true
-                }
+                return true
+            }
+        } else if (app.cursor) {
+            if (isArrow) {
+                if (ev.action == KeyEvent.ACTION_DOWN) moveCursor(k, ev.repeatCount)
+                return true
+            }
+            if (isOk) {
+                // a press is a mouse click; holding it keeps the button down (drag, long press)
+                if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
+                    press(true); moved = false; okLong = false
+                    if (custom != null) { h.removeCallbacks(okLongRun); h.postDelayed(okLongRun, 700) }     // fullscreen: holding without moving goes back to remote mode
+                } else if (ev.action == KeyEvent.ACTION_DOWN && custom != null && !okLong) { h.removeCallbacks(okLongRun); onOkHeld() }
+                else if (ev.action == KeyEvent.ACTION_UP) { h.removeCallbacks(okLongRun); if (!okLong) press(false) }
+                return true
             }
         }
         return super.dispatchKeyEvent(ev)
@@ -343,19 +379,21 @@ class WebActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_UP -> dy = -step; else -> dy = step
         }
         // pushing against a screen edge scrolls the page under the pointer
-        if (dy > 0 && cy >= hgt - edge) { scroll(0f, -1f); return }
-        if (dy < 0 && cy <= edge) { scroll(0f, 1f); return }
-        if (dx > 0 && cx >= w - edge) { scroll(-1f, 0f); return }
-        if (dx < 0 && cx <= edge) { scroll(1f, 0f); return }
+        val canScroll = custom == null
+        if (canScroll && dy > 0 && cy >= hgt - edge) { scroll(0f, -1f); return }
+        if (canScroll && dy < 0 && cy <= edge) { scroll(0f, 1f); return }
+        if (canScroll && dx > 0 && cx >= w - edge) { scroll(-1f, 0f); return }
+        if (canScroll && dx < 0 && cx <= edge) { scroll(1f, 0f); return }
         cx = (cx + dx).coerceIn(0f, w - 1); cy = (cy + dy).coerceIn(0f, hgt - 1)
         cursor.px = cx; cursor.py = cy; cursor.poke()
         val now = SystemClock.uptimeMillis()
         if (pressing) {
+            moved = true
             val e = MotionEvent.obtain(downAt, now, MotionEvent.ACTION_MOVE, cx, cy, 0); e.source = InputDevice.SOURCE_TOUCHSCREEN
-            web.dispatchTouchEvent(e); e.recycle()
+            target().dispatchTouchEvent(e); e.recycle()
         } else {
             val e = MotionEvent.obtain(now, now, MotionEvent.ACTION_HOVER_MOVE, cx, cy, 0); e.source = InputDevice.SOURCE_MOUSE
-            web.dispatchGenericMotionEvent(e); e.recycle()
+            target().dispatchGenericMotionEvent(e); e.recycle()
         }
     }
 
@@ -369,7 +407,19 @@ class WebActivity : Activity() {
         val sy = if (v != 0f) root.height / 2f else cy
         val pc = MotionEvent.PointerCoords().apply { x = sx; y = sy; setAxisValue(MotionEvent.AXIS_VSCROLL, v * 2f); setAxisValue(MotionEvent.AXIS_HSCROLL, h * 2f) }
         val e = MotionEvent.obtain(now, now, MotionEvent.ACTION_SCROLL, 1, arrayOf(pp), arrayOf(pc), 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
-        web.dispatchGenericMotionEvent(e); e.recycle()
+        target().dispatchGenericMotionEvent(e); e.recycle()
+    }
+
+    private fun onOkHeld() {
+        if (custom == null) return
+        if (!fsPointer) { okLong = true; fsPointer = true; flash("Pointer on     hold OK  back to play / pause", 2600); cursor.poke() }
+        else if (!moved && pressing) {
+            okLong = true; fsPointer = false
+            val now = SystemClock.uptimeMillis()
+            val e = MotionEvent.obtain(downAt, now, MotionEvent.ACTION_CANCEL, cx, cy, 0); e.source = InputDevice.SOURCE_TOUCHSCREEN
+            target().dispatchTouchEvent(e); e.recycle(); pressing = false
+            flash("OK  play / pause     \u25C0 \u25B6  seek 10 s", 2600)
+        }
     }
 
     private fun press(down: Boolean) {
@@ -378,7 +428,60 @@ class WebActivity : Activity() {
         if (down) { downAt = now; pressing = true } else if (!pressing) return else pressing = false
         val e = MotionEvent.obtain(downAt, now, if (down) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_UP, cx, cy, 0)
         e.source = InputDevice.SOURCE_TOUCHSCREEN
-        web.dispatchTouchEvent(e); e.recycle()
+        target().dispatchTouchEvent(e); e.recycle()
+    }
+
+    // ------------------------------------------------------------------ video
+
+    private val badge by lazy {
+        TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); setTextColor(Color.WHITE); typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            val d = resources.displayMetrics.density
+            setPadding((22 * d).toInt(), (10 * d).toInt(), (22 * d).toInt(), (10 * d).toInt())
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 40 * d; setColor(Color.argb(200, 12, 16, 28)) }
+            alpha = 0f
+        }
+    }
+    private var badgeAdded = false
+
+    private fun flash(text: String, hold: Long = 1400) {
+        if (!badgeAdded) { root.addView(badge, root.indexOfChild(cursor).coerceAtLeast(0) + 1, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = (36 * resources.displayMetrics.density).toInt() }); badgeAdded = true }
+        badge.text = text; badge.animate().cancel(); badge.alpha = 1f
+        badge.animate().alpha(0f).setStartDelay(hold).setDuration(400).start()
+    }
+
+    /**
+     * Play / pause / seek the video on the page. Works when the player is a normal <video> on the page or in a same-site frame.
+     * Players embedded from another site are out of reach for page scripts, so there a click in the middle of the screen is
+     * sent instead, which toggles playback in nearly every player.
+     */
+    private fun videoControl(cmd: String) {
+        val js = "(function(cmd){function all(d,o){try{d.querySelectorAll('video').forEach(function(v){o.push(v)});d.querySelectorAll('iframe').forEach(function(f){try{if(f.contentDocument)all(f.contentDocument,o)}catch(e){}})}catch(e){}return o}" +
+            "var v=all(document,[]);if(!v.length)return 'none';" +
+            "var b=v.filter(function(x){return !x.paused&&!x.ended})[0]||v.sort(function(a,c){return c.videoWidth*c.videoHeight-a.videoWidth*a.videoHeight})[0];" +
+            "if(cmd=='toggle'){b.paused?b.play():b.pause()}else if(cmd=='play'){b.play()}else if(cmd=='pause'){b.pause()}else{b.currentTime=Math.max(0,b.currentTime+parseFloat(cmd))}" +
+            "return (cmd.charAt(0)=='+'||cmd.charAt(0)=='-')?cmd:(b.paused?'paused':'playing')})('" + cmd + "')"
+        web.evaluateJavascript(js) { r ->
+            val res = r?.trim('"') ?: "none"
+            when {
+                res == "paused" -> flash("\u275A\u275A  Paused")
+                res == "playing" -> flash("\u25B6  Playing")
+                res.startsWith("+") || res.startsWith("-") -> flash(if (res.startsWith("+")) "\u23E9  +" + res.substring(1) + " s" else "\u23EA  \u2212" + res.substring(1) + " s")
+                cmd == "toggle" || cmd == "play" || cmd == "pause" -> { tapCentre(); flash("\u25B6 / \u275A\u275A") }
+            }
+        }
+    }
+
+    private fun tapCentre() {
+        val x = root.width / 2f; val y = root.height / 2f
+        val t = SystemClock.uptimeMillis()
+        val d = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0); d.source = InputDevice.SOURCE_TOUCHSCREEN
+        target().dispatchTouchEvent(d); d.recycle()
+        h.postDelayed({
+            val t2 = SystemClock.uptimeMillis()
+            val u = MotionEvent.obtain(t, t2, MotionEvent.ACTION_UP, x, y, 0); u.source = InputDevice.SOURCE_TOUCHSCREEN
+            target().dispatchTouchEvent(u); u.recycle()
+        }, 60)
     }
 
     // ------------------------------------------------------------------ menu
@@ -386,28 +489,22 @@ class WebActivity : Activity() {
     private fun dlg() = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
 
     private fun showMenu() {
-        val items = arrayOf(
-            "Reload",
-            "Go to the start page",
-            "Open another address…",
-            "Pointer (arrow keys move a mouse): " + (if (app.cursor) "On" else "Off"),
-            "Layout: " + (if (app.desktop) "Desktop" else "Mobile"),
-            "Zoom in  (now ${app.zoom}%)",
-            "Zoom out  (now ${app.zoom}%)",
-            "Close this app"
-        )
-        menu = dlg().setTitle(app.name).setItems(items) { _, i ->
-            when (i) {
-                0 -> { if (failedUrl != null) load(failedUrl!!) else web.reload() }
-                1 -> load(app.url)
-                2 -> askAddress()
-                3 -> { app.cursor = !app.cursor; save(); applySettings(); Toast.makeText(this, if (app.cursor) "Pointer on" else "Pointer off: arrow keys move focus", Toast.LENGTH_SHORT).show() }
-                4 -> { app.desktop = !app.desktop; save(); applySettings(); web.reload() }
-                5 -> { app.zoom = minOf(200, app.zoom + 10); save(); applyZoom(); Toast.makeText(this, "Zoom ${app.zoom}%", Toast.LENGTH_SHORT).show() }
-                6 -> { app.zoom = maxOf(50, app.zoom - 10); save(); if (app.zoom == 100) web.reload() else applyZoom(); Toast.makeText(this, "Zoom ${app.zoom}%", Toast.LENGTH_SHORT).show() }
-                7 -> finish()
-            }
-        }.show()
+        class Item(val label: String, val act: () -> Unit)
+        val items = ArrayList<Item>()
+        items += Item("\u25B6 / \u275A\u275A  Play or pause the video") { videoControl("toggle") }
+        if (custom != null) {
+            items += Item("Fullscreen keys: " + (if (fsPointer) "pointer" else "remote (OK = play / pause)") + "  (switch)") { fsPointer = !fsPointer; flash(if (fsPointer) "Pointer on" else "OK  play / pause     \u25C0 \u25B6  seek 10 s", 2200) }
+            items += Item("Leave fullscreen") { leaveCustom() }
+        }
+        items += Item("Reload") { if (failedUrl != null) load(failedUrl!!) else web.reload() }
+        items += Item("Go to the start page") { load(app.url) }
+        items += Item("Open another address…") { askAddress() }
+        items += Item("Pointer (arrow keys move a mouse): " + (if (app.cursor) "On" else "Off")) { app.cursor = !app.cursor; save(); applySettings(); Toast.makeText(this, if (app.cursor) "Pointer on" else "Pointer off: arrow keys move focus", Toast.LENGTH_SHORT).show() }
+        items += Item("Layout: " + (if (app.desktop) "Desktop" else "Mobile")) { app.desktop = !app.desktop; save(); applySettings(); web.reload() }
+        items += Item("Zoom in  (now ${app.zoom}%)") { app.zoom = minOf(200, app.zoom + 10); save(); applyZoom(); Toast.makeText(this, "Zoom ${app.zoom}%", Toast.LENGTH_SHORT).show() }
+        items += Item("Zoom out  (now ${app.zoom}%)") { app.zoom = maxOf(50, app.zoom - 10); save(); if (app.zoom == 100) web.reload() else applyZoom(); Toast.makeText(this, "Zoom ${app.zoom}%", Toast.LENGTH_SHORT).show() }
+        items += Item("Close this app") { finish() }
+        menu = dlg().setTitle(app.name).setItems(items.map { it.label }.toTypedArray()) { _, i -> items[i].act() }.show()
     }
 
     private fun save() { if (app.id != "tmp") Apps.update(this, app) }
