@@ -44,6 +44,10 @@ No push notifications, camera, microphone, file downloads or file pickers. Only 
 
 Tested on a Xiaomi TV Box S (Android 14). Not tested: dragging, typing inside a page, fullscreen video, zoom, and holding Back on a physical remote.
 
+## License
+
+MIT, see [LICENSE](LICENSE).
+
 ## Support
 
 If this project is useful to you, you can support its development:
