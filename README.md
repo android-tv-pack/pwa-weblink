@@ -4,11 +4,18 @@ Turn any website into an app tile on Android TV or Google TV. Paste a link, and 
 
 Android TV has no Chrome and no "Install app", so this is one small app that keeps a list of web apps. Each tile opens a full-screen WebView, so service workers, cookies, local storage and fullscreen video work. The app has a launcher entry, so it also shows up in Google TV and in [Aurora](https://github.com/android-tv-pack/aurora-launcher).
 
+## Install
+
+1. Download **WebApps.apk** from the [latest release](https://github.com/android-tv-pack/pwa-weblink/releases/latest).
+2. Put it on the TV and open it: with a file manager app, with the *Downloader* app (enter the release address), or from a USB stick. Android asks once to allow installs from that app.
+3. Open **Web Apps** from the app list. It needs no special permissions and no computer.
+
+To update, install the new APK over the old one: your web apps are kept, because every release is signed with the same key. (If you build and sign it yourself, remove the old copy first, as the signature differs.)
+
 ## Using it
 
 - **Add by link:** choose the **+** tile, type or paste an address, and check the preview (name, icon, whether a manifest was found).
 - **Add from your phone or computer:** the app shows an address like `http://<tv-ip>:8765` at the bottom; open it, paste the link, and the app appears on the TV. This avoids typing with a remote.
-- **Add from a computer over adb:** `adb shell am start -n app.hermes.webapps/.MainActivity --es add_url https://example.com`
 - **Open:** OK on a tile. **Options:** hold OK on a tile (open, rename, pointer on/off, desktop/mobile layout, refresh name and icon, remove).
 - **In a web app:** the arrow keys move a mouse pointer and OK clicks (hold OK to drag). Pushing against a screen edge scrolls. Hold **Back** or press **INFO** for the menu (reload, start page, open another address, pointer, layout, zoom, close). Back goes back in history, then leaves the app. Turn the pointer off for sites made for TV, such as YouTube TV.
 
@@ -28,7 +35,6 @@ JDK 17 and the Android SDK (platform 36). No other dependencies.
 ```sh
 echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk (debug-signed, ~0.7 MB)
-adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
 ## Limits
