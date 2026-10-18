@@ -7,6 +7,7 @@ Android TV has no Chrome and no "Install app", so this is one small app that kee
 ## Install
 
 1. Download **WebApps.apk** from the [latest release](https://github.com/android-tv-pack/pwa-weblink/releases/latest).
+   Direct link, for the *Downloader* app on the TV: `https://github.com/android-tv-pack/pwa-weblink/releases/latest/download/WebApps.apk`
 2. Put it on the TV and open it: with a file manager app, with the *Downloader* app (enter the release address), or from a USB stick. Android asks once to allow installs from that app.
 3. Open **Web Apps** from the app list. It needs no special permissions and no computer.
 
